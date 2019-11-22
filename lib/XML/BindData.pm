@@ -6,109 +6,107 @@ package XML::BindData;
 use XML::LibXML;
 
 sub bind {
-	my ($class, $xml_string, $data) = @_;
+    my ( $class, $xml_string, $data ) = @_;
 
-	my $xml = XML::LibXML->load_xml(string => $xml_string);
-	parse_node($xml->documentElement, $data);
+    my $xml = XML::LibXML->load_xml( string => $xml_string );
+    parse_node( $xml->documentElement, $data );
 
-	return $xml->toStringC14N(1);
+    return $xml->toStringC14N(1);
 }
 
 sub parse_node {
-	my ($node, $context) = @_;
+    my ( $node, $context ) = @_;
 
-	if (my $if_key = _strip_attr($node, 'tmpl-if')) {
-		my $unless = $if_key =~ s/^!//;
-		my $val    = _get($context, $if_key);
-		if ( (!$unless && ! defined $val)
-			|| ( $unless &&  defined $val)) {
-			$node->unbindNode;
-		}
-	}
+    if ( my $if_key = _strip_attr( $node, 'tmpl-if' ) ) {
+        my $unless = $if_key =~ s/^!//;
+        my $val = _get( $context, $if_key );
+        if (   ( !$unless && !defined $val )
+            || ( $unless && defined $val ) )
+        {
+            $node->unbindNode;
+        }
+    }
 
-	if (my $each_key = _strip_attr($node, 'tmpl-each')) {
-		my $parent = $node->parentNode;
+    if ( my $each_key = _strip_attr( $node, 'tmpl-each' ) ) {
+        my $parent = $node->parentNode;
 
-		my $to_add = _get($context, $each_key);
-		if (!$to_add || ref $to_add ne 'ARRAY') {
-			$to_add = [];
-		}
+        my $to_add = _get( $context, $each_key );
+        if ( !$to_add || ref $to_add ne 'ARRAY' ) {
+            $to_add = [];
+        }
 
-		foreach my $subcontext ( reverse @$to_add ) {
-			my $new = $node->cloneNode(1); # deep clone
-			parse_node($new, $subcontext);
-			$parent->insertAfter( $new, $node );
-		}
-		$node->unbindNode;
-		return;
-	}
+        foreach my $subcontext ( reverse @$to_add ) {
+            my $new = $node->cloneNode(1);    # deep clone
+            parse_node( $new, $subcontext );
+            $parent->insertAfter( $new, $node );
+        }
+        $node->unbindNode;
+        return;
+    }
 
-	if (my $binding = _strip_attr($node, 'tmpl-bind')) {
-		my $val = _get($context, $binding);
+    if ( my $binding = _strip_attr( $node, 'tmpl-bind' ) ) {
+        my $val = _get( $context, $binding );
 
-        my $default = _strip_attr($node, 'tmpl-default');
+        my $default = _strip_attr( $node, 'tmpl-default' );
 
-        unless (defined $val) {
+        unless ( defined $val ) {
             $val = defined $default ? $default : '';
         }
 
-		$node->appendTextNode($val);
-	}
+        $node->appendTextNode($val);
+    }
 
-	if (my $attr_map = _strip_attr($node, 'tmpl-attr-map')) {
-		my @attributes = map { [ split qr/:/ ] } split qr/,/, $attr_map;
+    if ( my $attr_map = _strip_attr( $node, 'tmpl-attr-map' ) ) {
+        my @attributes = map { [ split qr/:/ ] } split qr/,/, $attr_map;
 
-		foreach (@attributes) {
-			my $value = _get( $context, $_->[1] );
-			$node->setAttribute( $_->[0], $value ) if defined $value;
-		}
-	}
-
-        if ( my $attr_defaults = _strip_attr( $node, 'tmpl-attr-defaults' ) ) {
-            my @attributes
-                = map {
-                [   map { s/\\([:,])/$1/g; $_ } # remove backslash escaping
-                    split qr/(?<!\\):/          # split on non-backslashed colons
-                ]
-                }
-                split qr/(?<!\\),/,           # split on non-backslashed commas
-                $attr_defaults;
-
-            foreach (@attributes) {
-                my $value = $node->getAttribute( $_->[0] );
-                $node->setAttribute( $_->[0], $_->[1] )
-                    if ! defined $value || $value eq ''; 
-            }
+        foreach (@attributes) {
+            my $value = _get( $context, $_->[1] );
+            $node->setAttribute( $_->[0], $value ) if defined $value;
         }
+    }
 
-	my @children = grep {
-		$_->nodeType eq XML_ELEMENT_NODE
-	} $node->childNodes;
-	parse_node($_, $context) foreach @children;
+    if ( my $attr_defaults = _strip_attr( $node, 'tmpl-attr-defaults' ) ) {
+        my @attributes = map {
+            [   map { s/\\([:,])/$1/g; $_ }    # remove backslash escaping
+                    split qr/(?<!\\):/         # split on non-backslashed colons
+            ]
+            }
+            split qr/(?<!\\),/,                # split on non-backslashed commas
+            $attr_defaults;
+
+        foreach (@attributes) {
+            my $value = $node->getAttribute( $_->[0] );
+            $node->setAttribute( $_->[0], $_->[1] )
+                if !defined $value || $value eq '';
+        }
+    }
+
+    my @children = grep { $_->nodeType eq XML_ELEMENT_NODE } $node->childNodes;
+    parse_node( $_, $context ) foreach @children;
 }
 
 sub _get {
-	my ($context, $key) = @_;
+    my ( $context, $key ) = @_;
 
-	return '' if !defined $key;
+    return '' if !defined $key;
 
-	return $context if $key eq 'this';
+    return $context if $key eq 'this';
 
-	my @parts = split qr/\./, $key;
-	foreach (@parts) {
-		$context = $context->{$_};
-	}
-	return $context;
+    my @parts = split qr/\./, $key;
+    foreach (@parts) {
+        $context = $context->{$_};
+    }
+    return $context;
 }
 
 sub _strip_attr {
-	my ($node, $attr_name) = @_;
+    my ( $node, $attr_name ) = @_;
 
-	if (my $attributes = $node->attributes) {
-		if (my $attr = $attributes->removeNamedItem($attr_name)) {
-			return $attr->nodeValue;
-		}
-	}
+    if ( my $attributes = $node->attributes ) {
+        if ( my $attr = $attributes->removeNamedItem($attr_name) ) {
+            return $attr->nodeValue;
+        }
+    }
 }
 
 1;
